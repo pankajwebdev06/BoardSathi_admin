@@ -2,14 +2,24 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { generateQuestions, type GenerationResult } from "./generate-actions";
+import {
+  generateLongAnswers,
+  generateQuestions,
+  type GenerationResult,
+} from "./generate-actions";
 
-export function GenerateButton({
-  chapterId,
+function GenerationRunner({
   hasPdf,
+  label,
+  runningLabel,
+  doneNoun,
+  run,
 }: {
-  chapterId: string;
   hasPdf: boolean;
+  label: string;
+  runningLabel: string;
+  doneNoun: string;
+  run: () => Promise<GenerationResult>;
 }) {
   const router = useRouter();
   const [running, setRunning] = useState(false);
@@ -18,7 +28,7 @@ export function GenerateButton({
   async function handleGenerate() {
     setRunning(true);
     setResult(null);
-    const res = await generateQuestions(chapterId);
+    const res = await run();
     setResult(res);
     setRunning(false);
     if (!res.error) router.refresh();
@@ -31,7 +41,7 @@ export function GenerateButton({
         disabled={running || !hasPdf}
         className="rounded-lg bg-violet-600 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-700 disabled:opacity-50"
       >
-        {running ? "Generating… (this takes a few minutes)" : "Generate questions with AI"}
+        {running ? runningLabel : label}
       </button>
 
       {!hasPdf && (
@@ -42,10 +52,46 @@ export function GenerateButton({
 
       {result && !result.error && (
         <p className="text-sm text-green-600">
-          Done — {result.questionsCreated} draft questions across {result.conceptsUsed}{" "}
-          concepts. Review them in the Review Queue.
+          Done — {result.questionsCreated} draft {doneNoun} across{" "}
+          {result.conceptsUsed} concepts. Review them in the Review Queue.
         </p>
       )}
     </div>
+  );
+}
+
+export function GenerateButton({
+  chapterId,
+  hasPdf,
+}: {
+  chapterId: string;
+  hasPdf: boolean;
+}) {
+  return (
+    <GenerationRunner
+      hasPdf={hasPdf}
+      label="Generate questions with AI"
+      runningLabel="Generating… (this takes a few minutes)"
+      doneNoun="questions"
+      run={() => generateQuestions(chapterId)}
+    />
+  );
+}
+
+export function GenerateLongAnswersButton({
+  chapterId,
+  hasPdf,
+}: {
+  chapterId: string;
+  hasPdf: boolean;
+}) {
+  return (
+    <GenerationRunner
+      hasPdf={hasPdf}
+      label="Generate long answers with AI"
+      runningLabel="Generating… (this takes a few minutes)"
+      doneNoun="long answers"
+      run={() => generateLongAnswers(chapterId)}
+    />
   );
 }

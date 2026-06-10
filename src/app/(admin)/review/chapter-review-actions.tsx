@@ -31,7 +31,7 @@ export function ChapterReviewActions({
   async function handlePublish() {
     if (
       !confirm(
-        `Publish ${approvedCount} approved questions? Students will download them on next sync.`
+        `Publish ${approvedCount} approved items (questions + long answers)? Students will download them on next sync.`
       )
     )
       return;

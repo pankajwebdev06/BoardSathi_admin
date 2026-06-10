@@ -36,6 +36,26 @@ export interface GeneratedVariantGroup {
   variants: GeneratedQuestion[];
 }
 
+/** Bilingual point used in answer_structure / marking_breakdown JSONB. */
+export interface BilingualPoint {
+  en: string;
+  hi: string;
+}
+
+export interface GeneratedLongAnswer {
+  marks: number; // 3 or 5
+  question_en: string;
+  question_hi: string;
+  model_answer_en: string;
+  model_answer_hi: string;
+  answer_structure: BilingualPoint[];
+  examiner_keywords: string[];
+  marking_breakdown: (BilingualPoint & { marks: number })[];
+  diagram_needed: boolean;
+  writing_tips_en: string;
+  writing_tips_hi: string;
+}
+
 const CONCEPT_SCHEMA: Record<string, unknown> = {
   type: "object",
   properties: {
@@ -111,6 +131,77 @@ const QUESTION_SCHEMA: Record<string, unknown> = {
   additionalProperties: false,
 };
 
+const LONG_ANSWER_SCHEMA: Record<string, unknown> = {
+  type: "object",
+  properties: {
+    items: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          marks: { type: "integer", enum: [3, 5] },
+          question_en: { type: "string" },
+          question_hi: { type: "string" },
+          model_answer_en: { type: "string" },
+          model_answer_hi: { type: "string" },
+          answer_structure: {
+            type: "array",
+            description: "Ordered outline of the answer, point by point",
+            items: {
+              type: "object",
+              properties: {
+                en: { type: "string" },
+                hi: { type: "string" },
+              },
+              required: ["en", "hi"],
+              additionalProperties: false,
+            },
+          },
+          examiner_keywords: {
+            type: "array",
+            description:
+              "Terms the examiner scans for — format each as 'English term (हिंदी शब्द)'",
+            items: { type: "string" },
+          },
+          marking_breakdown: {
+            type: "array",
+            description: "How the marks split across answer parts",
+            items: {
+              type: "object",
+              properties: {
+                en: { type: "string" },
+                hi: { type: "string" },
+                marks: { type: "number" },
+              },
+              required: ["en", "hi", "marks"],
+              additionalProperties: false,
+            },
+          },
+          diagram_needed: { type: "boolean" },
+          writing_tips_en: { type: "string" },
+          writing_tips_hi: { type: "string" },
+        },
+        required: [
+          "marks",
+          "question_en",
+          "question_hi",
+          "model_answer_en",
+          "model_answer_hi",
+          "answer_structure",
+          "examiner_keywords",
+          "marking_breakdown",
+          "diagram_needed",
+          "writing_tips_en",
+          "writing_tips_hi",
+        ],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ["items"],
+  additionalProperties: false,
+};
+
 function pdfBlock(pdfBase64: string) {
   return {
     type: "document" as const,
@@ -170,6 +261,42 @@ Rules:
  * Generate variant groups of original questions for one concept.
  * Chunked per concept per PRD D-1 so no single call runs too long.
  */
+/**
+ * Generate long-answer items (M3 — the writing-technique differentiator):
+ * not just WHAT the answer is, but HOW to write it for marks. One call per
+ * concept (PRD D-1 chunking).
+ */
+export async function generateLongAnswersForConcept(
+  pdfBase64: string,
+  concept: ExtractedConcept,
+  itemCount = 2
+): Promise<GeneratedLongAnswer[]> {
+  const result = await structuredCall<{ items: GeneratedLongAnswer[] }>(
+    pdfBase64,
+    `This is an NCERT Class 10 textbook chapter (India). Create board-exam long-answer practice items for UP Board / Bihar Board students on this ONE concept:
+
+Concept: ${concept.name_en} (${concept.name_hi})
+
+Produce exactly ${itemCount} items: one 3-mark and one 5-mark question.
+
+Each item must teach the student HOW TO WRITE THE ANSWER FOR MARKS — this is the whole point:
+- question: a realistic board-exam long-answer question on this concept.
+- model_answer: a complete answer exactly as a top-scoring student would write it in the exam — right length for the marks (3-mark ≈ 60-80 words, 5-mark ≈ 100-150 words), structured, no fluff.
+- answer_structure: the ordered skeleton of the answer (3-6 points) — what to write first, second, third.
+- examiner_keywords: 4-8 terms the examiner scans for before awarding marks. Format each as "English term (हिंदी शब्द)".
+- marking_breakdown: how the total marks split across the answer's parts (parts must sum to the item's marks).
+- diagram_needed: true only if a labelled diagram is expected for full marks.
+- writing_tips: 2-3 sentences of plain, simple advice in the voice of a friendly teacher — common mistakes, what the examiner looks for ("examiner ye dekhta hai"), how to present.
+
+Content rules (critical):
+- ORIGINAL content — never copy sentences from the book verbatim.
+- Bilingual everywhere: every field in BOTH English and Hindi. Hindi must be natural, simple, Class-10 appropriate Devanagari with standard NCERT terminology — not literal machine translation.
+- Ground everything in the chapter content from the PDF.`,
+    LONG_ANSWER_SCHEMA
+  );
+  return result.items;
+}
+
 export async function generateQuestionsForConcept(
   pdfBase64: string,
   concept: ExtractedConcept,

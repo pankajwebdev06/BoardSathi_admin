@@ -6,6 +6,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAdmin } from "@/lib/auth";
 import {
   extractConcepts,
+  generateLongAnswersForConcept,
   generateQuestionsForConcept,
   type ExtractedConcept,
 } from "@/lib/ai/generation";
@@ -16,13 +17,17 @@ export interface GenerationResult {
   questionsCreated?: number;
 }
 
-// M2: PDF → concepts → per-concept question generation → draft rows.
-// Chunked per concept (PRD D-1). Everything lands as status='draft' and must
-// pass the review queue (M5) before students ever see it.
-export async function generateQuestions(chapterId: string): Promise<GenerationResult> {
-  const adminUser = await requireAdmin();
-  const admin = createAdminClient();
+interface ChapterContext {
+  pdfBase64: string;
+  concepts: { id: string; name_en: string; name_hi: string }[];
+}
 
+// Shared prep for all generators: download the chapter PDF and reuse the
+// chapter's concepts (extracting them once if missing).
+async function loadChapterContext(
+  admin: ReturnType<typeof createAdminClient>,
+  chapterId: string
+): Promise<{ error: string } | ChapterContext> {
   const { data: chapter } = await admin
     .from("chapters")
     .select("id, source_pdf_url")
@@ -42,8 +47,7 @@ export async function generateQuestions(chapterId: string): Promise<GenerationRe
   }
   const pdfBase64 = Buffer.from(await pdfFile.arrayBuffer()).toString("base64");
 
-  // Reuse existing concepts if the chapter already has them; otherwise extract
-  let concepts: { id: string; name_en: string; name_hi: string }[] = [];
+  let concepts: ChapterContext["concepts"] = [];
   const { data: existing } = await admin
     .from("concept")
     .select("id, name_en, name_hi")
@@ -65,6 +69,20 @@ export async function generateQuestions(chapterId: string): Promise<GenerationRe
     if (insertError) return { error: insertError.message };
     concepts = inserted ?? [];
   }
+
+  return { pdfBase64, concepts };
+}
+
+// M2: PDF → concepts → per-concept question generation → draft rows.
+// Chunked per concept (PRD D-1). Everything lands as status='draft' and must
+// pass the review queue (M5) before students ever see it.
+export async function generateQuestions(chapterId: string): Promise<GenerationResult> {
+  const adminUser = await requireAdmin();
+  const admin = createAdminClient();
+
+  const context = await loadChapterContext(admin, chapterId);
+  if ("error" in context) return { error: context.error };
+  const { pdfBase64, concepts } = context;
 
   let questionsCreated = 0;
   for (const concept of concepts) {
@@ -122,4 +140,66 @@ export async function generateQuestions(chapterId: string): Promise<GenerationRe
   revalidatePath(`/chapters/${chapterId}`);
   revalidatePath("/review");
   return { error: null, conceptsUsed: concepts.length, questionsCreated };
+}
+
+// M3: PDF → per-concept long-answer generation → draft rows. Same pipeline
+// shape as M2; publish_chapter flips approved long answers to published.
+export async function generateLongAnswers(
+  chapterId: string
+): Promise<GenerationResult> {
+  const adminUser = await requireAdmin();
+  const admin = createAdminClient();
+
+  const context = await loadChapterContext(admin, chapterId);
+  if ("error" in context) return { error: context.error };
+  const { pdfBase64, concepts } = context;
+
+  let itemsCreated = 0;
+  for (const concept of concepts) {
+    let items;
+    try {
+      items = await generateLongAnswersForConcept(pdfBase64, {
+        name_en: concept.name_en,
+        name_hi: concept.name_hi,
+      });
+    } catch (e) {
+      return {
+        error: `Generation failed on concept "${concept.name_en}": ${(e as Error).message}`,
+        conceptsUsed: concepts.length,
+        questionsCreated: itemsCreated,
+      };
+    }
+
+    const rows = items.map((item) => ({
+      chapter_id: chapterId,
+      concept_id: concept.id,
+      marks: item.marks,
+      question_en: item.question_en,
+      question_hi: item.question_hi,
+      model_answer_en: item.model_answer_en,
+      model_answer_hi: item.model_answer_hi,
+      answer_structure: item.answer_structure,
+      examiner_keywords: item.examiner_keywords,
+      marking_breakdown: item.marking_breakdown,
+      diagram_needed: item.diagram_needed,
+      writing_tips_en: item.writing_tips_en,
+      writing_tips_hi: item.writing_tips_hi,
+      status: "draft",
+      created_by: adminUser.id,
+    }));
+
+    const { error: insertError } = await admin.from("long_answer").insert(rows);
+    if (insertError) {
+      return {
+        error: `Insert failed on concept "${concept.name_en}": ${insertError.message}`,
+        conceptsUsed: concepts.length,
+        questionsCreated: itemsCreated,
+      };
+    }
+    itemsCreated += rows.length;
+  }
+
+  revalidatePath(`/chapters/${chapterId}`);
+  revalidatePath("/review");
+  return { error: null, conceptsUsed: concepts.length, questionsCreated: itemsCreated };
 }

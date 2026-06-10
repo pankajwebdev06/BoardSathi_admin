@@ -64,6 +64,27 @@ export interface Question {
   content_version: number;
 }
 
+export interface LongAnswer {
+  id: string;
+  chapter_id: string;
+  concept_id: string | null;
+  marks: number;
+  is_pyq: boolean;
+  pyq_years: number[];
+  question_en: string;
+  question_hi: string;
+  model_answer_en: string;
+  model_answer_hi: string;
+  answer_structure: { en: string; hi: string }[];
+  examiner_keywords: string[];
+  marking_breakdown: { en: string; hi: string; marks: number }[];
+  diagram_needed: boolean;
+  writing_tips_en: string | null;
+  writing_tips_hi: string | null;
+  status: ContentStatus;
+  content_version: number;
+}
+
 export interface AdminUser {
   id: string;
   auth_user_id: string | null;

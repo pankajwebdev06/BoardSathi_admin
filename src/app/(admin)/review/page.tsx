@@ -1,12 +1,18 @@
 import { createAdminClient } from "@/lib/supabase/admin";
-import type { Chapter, Concept, Question } from "@/lib/types";
+import type { Chapter, Concept, LongAnswer, Question } from "@/lib/types";
 import { QuestionReviewCard } from "./question-review-card";
+import { LongAnswerReviewCard } from "./long-answer-review-card";
 import { ChapterReviewActions } from "./chapter-review-actions";
 
 export default async function ReviewQueuePage() {
   const admin = createAdminClient();
 
-  const [{ data: drafts }, { data: approvedCounts }] = await Promise.all([
+  const [
+    { data: drafts },
+    { data: approvedCounts },
+    { data: laDrafts },
+    { data: laApprovedCounts },
+  ] = await Promise.all([
     admin
       .from("questions")
       .select("*")
@@ -15,13 +21,24 @@ export default async function ReviewQueuePage() {
       .order("variant_group_id")
       .order("created_at"),
     admin.from("questions").select("chapter_id").eq("status", "approved"),
+    admin
+      .from("long_answer")
+      .select("*")
+      .eq("status", "draft")
+      .order("chapter_id")
+      .order("marks")
+      .order("created_at"),
+    admin.from("long_answer").select("chapter_id").eq("status", "approved"),
   ]);
 
   const draftQuestions = (drafts ?? []) as Question[];
+  const draftLongAnswers = (laDrafts ?? []) as LongAnswer[];
   const chapterIds = [
     ...new Set([
       ...draftQuestions.map((q) => q.chapter_id),
+      ...draftLongAnswers.map((la) => la.chapter_id),
       ...(approvedCounts ?? []).map((r) => r.chapter_id as string),
+      ...(laApprovedCounts ?? []).map((r) => r.chapter_id as string),
     ]),
   ];
 
@@ -39,15 +56,16 @@ export default async function ReviewQueuePage() {
   const conceptName = (id: string | null) =>
     concepts.find((c) => c.id === id)?.name_en ?? "untagged";
   const approvedByChapter = (chapterId: string) =>
-    (approvedCounts ?? []).filter((r) => r.chapter_id === chapterId).length;
+    (approvedCounts ?? []).filter((r) => r.chapter_id === chapterId).length +
+    (laApprovedCounts ?? []).filter((r) => r.chapter_id === chapterId).length;
 
   if (chapterIds.length === 0) {
     return (
       <div>
         <h2 className="mb-2 text-2xl font-bold text-gray-900">Review Queue</h2>
         <p className="text-sm text-gray-500">
-          Nothing to review. Generate questions from a chapter page — drafts will
-          appear here for approval, then publishing.
+          Nothing to review. Generate questions or long answers from a chapter
+          page — drafts will appear here for approval, then publishing.
         </p>
       </div>
     );
@@ -59,8 +77,14 @@ export default async function ReviewQueuePage() {
 
       {chapterIds.map((chapterId) => {
         const chapter = chapters.find((c) => c.id === chapterId);
-        const chapterDrafts = draftQuestions.filter((q) => q.chapter_id === chapterId);
+        const chapterDrafts = draftQuestions.filter(
+          (q) => q.chapter_id === chapterId
+        );
+        const chapterLaDrafts = draftLongAnswers.filter(
+          (la) => la.chapter_id === chapterId
+        );
         const approvedCount = approvedByChapter(chapterId);
+        const draftCount = chapterDrafts.length + chapterLaDrafts.length;
 
         return (
           <section key={chapterId} className="mb-10">
@@ -70,13 +94,14 @@ export default async function ReviewQueuePage() {
                   {chapter ? `Ch ${chapter.number}: ${chapter.title_en}` : "Chapter"}
                 </h3>
                 <p className="text-sm text-gray-500">
-                  {chapterDrafts.length} draft · {approvedCount} approved awaiting
-                  publish · v{chapter?.content_version}
+                  {chapterDrafts.length} draft questions ·{" "}
+                  {chapterLaDrafts.length} draft long answers · {approvedCount}{" "}
+                  approved awaiting publish · v{chapter?.content_version}
                 </p>
               </div>
               <ChapterReviewActions
                 chapterId={chapterId}
-                draftCount={chapterDrafts.length}
+                draftCount={draftCount}
                 approvedCount={approvedCount}
               />
             </div>
@@ -87,6 +112,13 @@ export default async function ReviewQueuePage() {
                   key={q.id}
                   question={q}
                   conceptName={conceptName(q.concept_id)}
+                />
+              ))}
+              {chapterLaDrafts.map((la) => (
+                <LongAnswerReviewCard
+                  key={la.id}
+                  item={la}
+                  conceptName={conceptName(la.concept_id)}
                 />
               ))}
             </div>

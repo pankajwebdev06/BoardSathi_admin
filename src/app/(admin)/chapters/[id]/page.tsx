@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { Chapter, Concept } from "@/lib/types";
 import { PdfUploadForm } from "./pdf-upload-form";
-import { GenerateButton } from "./generate-button";
+import { GenerateButton, GenerateLongAnswersButton } from "./generate-button";
 
 export default async function ChapterDetailPage({
   params,
@@ -13,13 +13,16 @@ export default async function ChapterDetailPage({
   const { id } = await params;
   const admin = createAdminClient();
 
-  const [{ data: chapter }, { data: concepts }, draft, approved, published] =
+  const [{ data: chapter }, { data: concepts }, draft, approved, published, laDraft, laApproved, laPublished] =
     await Promise.all([
       admin.from("chapters").select("*").eq("id", id).single(),
       admin.from("concept").select("*").eq("chapter_id", id).order("name_en"),
       admin.from("questions").select("*", { count: "exact", head: true }).eq("chapter_id", id).eq("status", "draft"),
       admin.from("questions").select("*", { count: "exact", head: true }).eq("chapter_id", id).eq("status", "approved"),
       admin.from("questions").select("*", { count: "exact", head: true }).eq("chapter_id", id).eq("status", "published"),
+      admin.from("long_answer").select("*", { count: "exact", head: true }).eq("chapter_id", id).eq("status", "draft"),
+      admin.from("long_answer").select("*", { count: "exact", head: true }).eq("chapter_id", id).eq("status", "approved"),
+      admin.from("long_answer").select("*", { count: "exact", head: true }).eq("chapter_id", id).eq("status", "published"),
     ]);
 
   if (!chapter) notFound();
@@ -77,6 +80,29 @@ export default async function ChapterDetailPage({
           </span>
         </div>
         <GenerateButton chapterId={ch.id} hasPdf={!!ch.source_pdf_url} />
+      </div>
+
+      <div className="mb-6 rounded-xl bg-white p-6 shadow-sm">
+        <h3 className="mb-1 font-semibold text-gray-900">
+          AI long-answer generation
+        </h3>
+        <p className="mb-4 text-sm text-gray-500">
+          The writing-technique differentiator (M3): model answer, examiner
+          keywords, marks breakdown and writing tips — bilingual, per concept.
+          Drafts go to the Review Queue.
+        </p>
+        <div className="mb-4 flex gap-4 text-sm">
+          <span className="rounded-full bg-amber-100 px-3 py-1 font-medium text-amber-700">
+            Draft: {laDraft.count ?? 0}
+          </span>
+          <span className="rounded-full bg-blue-100 px-3 py-1 font-medium text-blue-700">
+            Approved: {laApproved.count ?? 0}
+          </span>
+          <span className="rounded-full bg-green-100 px-3 py-1 font-medium text-green-700">
+            Published: {laPublished.count ?? 0}
+          </span>
+        </div>
+        <GenerateLongAnswersButton chapterId={ch.id} hasPdf={!!ch.source_pdf_url} />
       </div>
 
       <div className="rounded-xl bg-white p-6 shadow-sm">
