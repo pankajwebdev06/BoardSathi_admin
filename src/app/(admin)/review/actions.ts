@@ -100,6 +100,22 @@ export async function approveAllForChapter(formData: FormData) {
   return { error: null };
 }
 
+// M13: a student-flagged item is resolved once an admin has acted on it
+export async function resolveReport(formData: FormData) {
+  await requireAdmin();
+  const admin = createAdminClient();
+  const id = formData.get("id") as string;
+
+  const { error } = await admin
+    .from("report")
+    .update({ status: "resolved" })
+    .eq("id", id);
+
+  if (error) return { error: error.message };
+  refresh();
+  return { error: null };
+}
+
 export async function publishChapter(formData: FormData) {
   await requireAdmin();
   const admin = createAdminClient();
