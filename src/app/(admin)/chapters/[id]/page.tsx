@@ -33,7 +33,15 @@ export default async function ChapterDetailPage({
       <h2 className="mb-1 text-2xl font-bold text-gray-900">
         Chapter {ch.number}: {ch.title_en}
       </h2>
-      <p className="mb-6 text-gray-500">{ch.title_hi}</p>
+      <p className="mb-2 text-gray-500">{ch.title_hi}</p>
+      <p className="mb-6 text-sm">
+        <Link
+          href={`/chapters/${ch.id}/questions`}
+          className="text-blue-600 hover:underline"
+        >
+          View all content &amp; tag PYQs →
+        </Link>
+      </p>
 
       <div className="mb-6 rounded-xl bg-white p-6 shadow-sm">
         <h3 className="mb-3 font-semibold text-gray-900">Details</h3>
