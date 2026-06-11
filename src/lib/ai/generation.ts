@@ -1,18 +1,11 @@
 import "server-only";
-import Anthropic from "@anthropic-ai/sdk";
+import { getAiConfig } from "./config";
+import { runStructuredGeneration } from "./provider";
 
 // All AI runs here, at admin/content-creation time — never in the student app
 // (PRD principle #1). Generated content is saved as draft and must pass human
-// review before publishing.
-
-const MODEL = "claude-opus-4-8";
-
-function client() {
-  if (!process.env.ANTHROPIC_API_KEY) {
-    throw new Error("ANTHROPIC_API_KEY is not set in .env.local");
-  }
-  return new Anthropic();
-}
+// review before publishing. The provider/model comes from the AI Settings
+// page (any AI company), falling back to ANTHROPIC_API_KEY in .env.local.
 
 export interface ExtractedConcept {
   name_en: string;
@@ -202,41 +195,18 @@ const LONG_ANSWER_SCHEMA: Record<string, unknown> = {
   additionalProperties: false,
 };
 
-function pdfBlock(pdfBase64: string) {
-  return {
-    type: "document" as const,
-    source: {
-      type: "base64" as const,
-      media_type: "application/pdf" as const,
-      data: pdfBase64,
-    },
-  };
-}
-
 async function structuredCall<T>(
   pdfBase64: string,
   prompt: string,
   schema: Record<string, unknown>
 ): Promise<T> {
-  const stream = client().messages.stream({
-    model: MODEL,
-    max_tokens: 32000,
-    thinking: { type: "adaptive" },
-    output_config: { format: { type: "json_schema", schema } },
-    messages: [
-      {
-        role: "user",
-        content: [pdfBlock(pdfBase64), { type: "text", text: prompt }],
-      },
-    ],
-  });
-  const message = await stream.finalMessage();
-
-  const text = message.content.find((b) => b.type === "text");
-  if (!text || text.type !== "text") {
-    throw new Error(`No text block in response (stop_reason: ${message.stop_reason})`);
+  const config = await getAiConfig();
+  if (!config) {
+    throw new Error(
+      "No AI provider configured — open AI Settings, enter an API key, test it and save."
+    );
   }
-  return JSON.parse(text.text) as T;
+  return runStructuredGeneration<T>(config, pdfBase64, prompt, schema);
 }
 
 /**
